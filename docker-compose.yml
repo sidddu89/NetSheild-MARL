@@ -1,19 +1,42 @@
 version: '3.8'
+
+networks:
+  netshield_net:
+    driver: bridge
+
 services:
   frontend:
     image: nginx:alpine
+    container_name: netshield_frontend
     ports:
       - "8080:80"
-  
+    networks:
+      - netshield_net
+
   api:
     image: python:3.9-alpine
-    command: sh -c "while true; do sleep 2; wget -qO- http://frontend > /dev/null; done"
+    container_name: netshield_api
+    command: sh -c "while true; do sleep 3; wget -qO- http://frontend > /dev/null; done"
     depends_on:
       - frontend
+    networks:
+      - netshield_net
 
   db:
     image: postgres:alpine
+    container_name: netshield_db
     environment:
       POSTGRES_USER: admin
       POSTGRES_PASSWORD: password
       POSTGRES_DB: netshield
+    networks:
+      - netshield_net
+
+  attacker:
+    image: python:3.9-alpine
+    container_name: netshield_attacker
+    command: sh -c "sleep 10; while true; do sleep 15; wget -qO- http://db:5432 || true; done"
+    depends_on:
+      - db
+    networks:
+      - netshield_net
