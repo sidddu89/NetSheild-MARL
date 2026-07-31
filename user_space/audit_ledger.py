@@ -44,7 +44,8 @@ class CryptographicAuditLedger:
         Creates the 'audit_ledger' table if it does not exist and inserts
         the Genesis Block (Block 0) if the table is empty.
         """
-        with self._get_connection() as conn:
+        conn = self._get_connection()
+        try:
             cursor = conn.cursor()
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS audit_ledger (
@@ -62,6 +63,8 @@ class CryptographicAuditLedger:
             if cursor.fetchone()[0] == 0:
                 self._create_genesis_block(cursor)
                 conn.commit()
+        finally:
+            conn.close()
 
     def _create_genesis_block(self, cursor: sqlite3.Cursor) -> None:
         """Internal helper to construct and insert Block 0."""
@@ -112,7 +115,8 @@ class CryptographicAuditLedger:
         payload_json = json.dumps(event_payload, sort_keys=True)
         timestamp = datetime.now(timezone.utc).isoformat()
 
-        with self._get_connection() as conn:
+        conn = self._get_connection()
+        try:
             cursor = conn.cursor()
             
             # Retrieve previous block details
@@ -142,6 +146,8 @@ class CryptographicAuditLedger:
             """, (new_index, timestamp, payload_json, prev_hash, curr_hash))
             
             conn.commit()
+        finally:
+            conn.close()
 
         print(f"📝 [Audit Ledger] Block #{new_index} committed | Event: {event_payload.get('action_taken', 'EVENT')} | Hash: {curr_hash[:16]}...")
         return curr_hash
@@ -155,7 +161,8 @@ class CryptographicAuditLedger:
             Tuple[bool, int]: (True, -1) if chain is 100% valid.
                               (False, tampered_block_index) if tampering/corruption is detected.
         """
-        with self._get_connection() as conn:
+        conn = self._get_connection()
+        try:
             cursor = conn.cursor()
             cursor.execute("""
                 SELECT block_index, timestamp, event_payload, previous_hash, current_hash 
@@ -163,6 +170,8 @@ class CryptographicAuditLedger:
                 ORDER BY block_index ASC
             """)
             blocks = cursor.fetchall()
+        finally:
+            conn.close()
 
         if not blocks:
             print("⚠️ [Audit Ledger] Ledger is empty!")
@@ -209,6 +218,40 @@ class CryptographicAuditLedger:
 
         print(f"✅ [Audit Ledger] Chain Integrity Verified: All {len(blocks)} blocks cryptographically valid.")
         return True, -1
+
+    def log_event(
+        self,
+        event_type: str,
+        source_comm: str,
+        target_info: str,
+        action_taken: str,
+        anomaly_score: float,
+        **extra_fields: Any,
+    ) -> str:
+        """
+        Pipeline-integration convenience wrapper called by main_pipeline.py.
+        Constructs a standardised event_payload dict and delegates to append_event().
+
+        Args:
+            event_type:    High-level event category (e.g., "ZERO_TRUST_ANOMALY").
+            source_comm:   Originating process/container identifier from eBPF.
+            target_info:   Destination identifier string (e.g., "172.18.0.3:8080").
+            action_taken:  MARL action name executed (e.g., "ISOLATE_CONTAINER").
+            anomaly_score: GNN anomaly confidence [0.0 – 1.0].
+            **extra_fields: Any additional fields to embed in the event payload.
+
+        Returns:
+            SHA-256 current_hash of the committed block.
+        """
+        payload: Dict[str, Any] = {
+            "event_type":    event_type,
+            "source_comm":   source_comm,
+            "target_info":   target_info,
+            "action_taken":  action_taken,
+            "anomaly_score": round(anomaly_score, 6),
+            **extra_fields,
+        }
+        return self.append_event(payload)
 
 
 if __name__ == "__main__":

@@ -4,7 +4,8 @@ import sys
 import time
 import socket
 import struct
-from bcc import BPF
+# pyrefly: ignore [missing-import]
+from bcc import BPF           
 
 def check_root_privileges():
     """Ensure script is executed with root/sudo privileges on WSL2/Linux."""
